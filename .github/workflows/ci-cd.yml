@@ -21,9 +21,9 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build image
         run: docker build -t "$IMAGE_NAME:ci" .
@@ -69,25 +69,35 @@ jobs:
       run:
         working-directory: infra
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
 
       - name: terraform fmt
-        run: terraform fmt -check -recursive -diff
+        run: |
+          if ! terraform fmt -check -recursive -diff > fmt.diff 2>&1; then
+            cat fmt.diff
+            echo "::error title=terraform fmt::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' fmt.diff)"
+            exit 1
+          fi
 
       - name: terraform init
         run: terraform init -backend=false -input=false
 
       - name: terraform validate
-        run: terraform validate
+        run: |
+          terraform validate -json > validate.json || true
+          jq -r '.diagnostics[] | "::\(if .severity == "error" then "error" else "warning" end) title=terraform validate::\(.summary) \(.detail // "" | gsub("\n"; " "))"' validate.json
+          jq -e '.valid' validate.json
 
   deploy:
     name: Deploy to Azure Container Apps
     runs-on: ubuntu-latest
     needs: [container, terraform]
     # Runs only on main, and only once the Azure variables have been added to the repo
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ACR_NAME != ''
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && vars.ACR_NAME != ''
     environment:
       name: production
       url: ${{ steps.deploy.outputs.app_url }}
@@ -95,7 +105,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Azure login (OIDC, no stored secrets)
         uses: azure/login@v2
