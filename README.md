@@ -21,7 +21,7 @@ flowchart LR
         tf --> d
     end
 
-    subgraph azure[Azure resource group, provisioned by Terraform]
+    subgraph azure[Azure, provisioned by Terraform]
         mi[Managed identity]
         acr[(Container Registry)]
         ca[Container App<br/>gunicorn + Flask<br/>scales 0 to 2]
