@@ -1,6 +1,6 @@
 """
 Sydney Housing Price Prediction App
-SIT720 8.1 Distinction Task
+Developed as part of SIT720 Machine Learning, Deakin University.
 
 Loads the trained Random Forest model from housing_model_bundle.pkl
 (created in the accompanying notebook) and predicts a sale price
