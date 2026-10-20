@@ -1,0 +1,145 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: sydney-housing
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt "pytest>=8,<9"
+
+      - name: Run tests
+        run: pytest -v
+
+  container:
+    name: Build and smoke test image
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t "$IMAGE_NAME:ci" .
+
+      - name: Run container and check it responds
+        run: |
+          docker run -d --name app -p 8000:8000 "$IMAGE_NAME:ci"
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8000/health
+          curl -fsS -X POST http://localhost:8000/ \
+            -d "suburb=Liverpool&property_type=House&bedrooms=4&bathrooms=2&parking_spaces=2" \
+            -d "distance_to_cbd_km=31&distance_to_station_km=0.8&land_size_sqm=550&internal_area_sqm=220" \
+            | grep -q "Predicted sale price"
+          echo "Container smoke test passed"
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs app || true
+
+  terraform:
+    name: Terraform format and validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform validate
+
+  deploy:
+    name: Deploy to Azure Container Apps
+    runs-on: ubuntu-latest
+    needs: [container, terraform]
+    # Runs only on main, and only once the Azure variables have been added to the repo
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ACR_NAME != ''
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.app_url }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC, no stored secrets)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image to ACR
+        run: |
+          az acr login --name "${{ vars.ACR_NAME }}"
+          REGISTRY="${{ vars.ACR_NAME }}.azurecr.io"
+          docker build -t "$REGISTRY/$IMAGE_NAME:${{ github.sha }}" -t "$REGISTRY/$IMAGE_NAME:latest" .
+          docker push "$REGISTRY/$IMAGE_NAME:${{ github.sha }}"
+          docker push "$REGISTRY/$IMAGE_NAME:latest"
+
+      - name: Roll out new revision
+        id: deploy
+        run: |
+          if ! az containerapp show -n "${{ vars.CONTAINER_APP }}" -g "${{ vars.RESOURCE_GROUP }}" -o none 2>/dev/null; then
+            echo "::notice::Image pushed. Container App not created yet: set deploy_app = true in Terraform and run terraform apply."
+            echo "app_url=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          az containerapp update \
+            -n "${{ vars.CONTAINER_APP }}" \
+            -g "${{ vars.RESOURCE_GROUP }}" \
+            --image "${{ vars.ACR_NAME }}.azurecr.io/$IMAGE_NAME:${{ github.sha }}" \
+            -o none
+          FQDN=$(az containerapp show -n "${{ vars.CONTAINER_APP }}" -g "${{ vars.RESOURCE_GROUP }}" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "app_url=https://$FQDN" >> "$GITHUB_OUTPUT"
+
+      - name: Check the live app
+        if: steps.deploy.outputs.app_url != ''
+        run: |
+          # The app scales to zero, so the first request can take a little while
+          for i in $(seq 1 20); do
+            if curl -fsS "${{ steps.deploy.outputs.app_url }}/health"; then
+              echo
+              echo "Live at ${{ steps.deploy.outputs.app_url }}"
+              exit 0
+            fi
+            sleep 6
+          done
+          echo "::error::App did not become healthy in time"
+          exit 1

@@ -1,0 +1,6 @@
+# Extra packages for running the tests and the notebook.
+-r requirements.txt
+pytest>=8,<9
+matplotlib
+seaborn
+jupyter

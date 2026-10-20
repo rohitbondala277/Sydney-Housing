@@ -1,7 +1,9 @@
-flask
-pandas
-numpy
-scikit-learn
-joblib
-matplotlib
-seaborn
+# Runtime dependencies for the web app and container.
+# scikit-learn is pinned to the version the model was trained with,
+# so the saved Random Forest loads without version warnings.
+flask>=3.1,<3.2
+gunicorn>=23,<24
+joblib>=1.4,<2
+numpy>=2.0,<3
+pandas>=2.2,<4
+scikit-learn==1.8.0

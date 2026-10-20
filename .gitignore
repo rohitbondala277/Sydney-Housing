@@ -4,3 +4,12 @@ __pycache__/
 venv/
 .venv/
 .ipynb_checkpoints/
+
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/terraform.tfvars
+infra/.terraform.lock.hcl.bak
+crash.log
+.pytest_cache/

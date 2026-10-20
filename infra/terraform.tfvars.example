@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is git-ignored.
+subscription_id = "00000000-0000-0000-0000-000000000000"
+location        = "australiaeast"
+
+# Set to true after the pipeline has pushed the first image (see README)
+deploy_app = false

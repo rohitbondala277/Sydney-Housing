@@ -115,6 +115,10 @@
     {% if prediction %}
     <div class="result">
         <h2>Predicted sale price: {{ prediction }}</h2>
+        {% if area_note %}
+        <p class="note">{{ area_note }}</p>
+        {% endif %}
+        <p class="caveat">Estimate from a Random Forest trained on 105 sales. Typical error is several hundred thousand dollars, so treat this as a rough guide.</p>
     </div>
     {% endif %}
 </body>

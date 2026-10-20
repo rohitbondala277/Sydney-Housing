@@ -6,17 +6,25 @@ Loads the trained Random Forest model from housing_model_bundle.pkl
 (created in the accompanying notebook) and predicts a sale price
 for a property based on user entered features.
 
-Run with: python app.py
+Run locally with: python app.py
 Then open http://localhost:5000 in a browser.
+
+In the container it runs under gunicorn (see Dockerfile) and exposes a
+/health endpoint used by Azure Container Apps health probes.
 """
+
+import os
 
 import pandas as pd
 import joblib
-from flask import Flask, render_template, request
+from flask import Flask, jsonify, render_template, request
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.environ.get("MODEL_PATH", os.path.join(BASE_DIR, "housing_model_bundle.pkl"))
 
 app = Flask(__name__)
 
-bundle = joblib.load("housing_model_bundle.pkl")
+bundle = joblib.load(MODEL_PATH)
 model = bundle["model"]
 feature_columns = bundle["feature_columns"]
 suburb_type_medians = bundle["suburb_type_medians"]
@@ -129,5 +137,15 @@ def index():
     )
 
 
+@app.route("/health")
+def health():
+    """Lightweight check used by the container health probes and the CI smoke test."""
+    return jsonify(status="ok", model=type(model).__name__, features=len(feature_columns))
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "5000")),
+        debug=os.environ.get("FLASK_DEBUG", "0") == "1",
+    )
