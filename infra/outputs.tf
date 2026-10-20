@@ -17,7 +17,7 @@ output "app_url" {
 
 output "github_variables" {
   description = "Values to add under GitHub > Settings > Secrets and variables > Actions > Variables."
-  value       = {
+  value = {
     AZURE_CLIENT_ID       = azurerm_user_assigned_identity.github.client_id
     AZURE_TENANT_ID       = azurerm_user_assigned_identity.github.tenant_id
     AZURE_SUBSCRIPTION_ID = var.subscription_id
